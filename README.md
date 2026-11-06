@@ -1,67 +1,50 @@
-# Payload Blank Template
+# plugin-multi-tenant: `isGlobal` collections bounce tenant-scoped users to `/admin` (3.93.0)
 
-This template comes configured with the bare minimum to get started on anything you need.
+Minimal reproduction on the `blank` template (SQLite), Payload `3.93.0`.
 
-## Quick start
+`GlobalViewRedirect` reads `tenantArrayFieldName` / `tenantArrayTenantFieldName`, but the
+plugin registers it with `tenantsArrayFieldName` / `tenantsArrayTenantFieldName`. Both
+arrive `undefined`, so since 3.93.0 (which always calls `getTenantOptions`) a user without
+all-tenants access gets no tenant options and is redirected to `/admin`.
 
-This template can be deployed directly from our Cloud hosting and it will setup MongoDB and cloud S3 object storage for media.
+## Setup
 
-## Quick Start - local setup
+- `tenants` collection, `settings` collection with `isGlobal: true`
+- `users` with `roles` (`super-admin` | `user`); `userHasAccessToAllTenants` = has `super-admin`
+- Seed: tenants A and B, `admin@example.com` (super-admin), `editor@example.com` (user, tenant A only),
+  one `settings` doc for tenant A. All passwords: `test`.
 
-To spin up this template locally, follow these steps:
+## Steps
 
-### Clone
+```sh
+cp .env.example .env    # DATABASE_URL=file:./payload.db, set PAYLOAD_SECRET
+pnpm install
+pnpm payload run src/seed.ts
+pnpm dev
+```
 
-After you click the `Deploy` button above, you'll want to have standalone copy of this repo on your machine. If you've already cloned this repo, skip to [Development](#development).
+1. Log in at http://localhost:3000/admin as `editor@example.com` / `test`.
+2. Open **Settings** (http://localhost:3000/admin/collections/settings).
 
-### Development
+**Expected:** redirect to tenant A's settings doc (`/admin/collections/settings/1`).
+**Actual:** after the page loads, the browser lands on `/admin` (dashboard).
 
-1. First [clone the repo](#clone) if you have not done so already
-2. `cd my-project && cp .env.example .env` to copy the example environment variables. You'll need to add the `MONGODB_URL` from your Cloud project to your `.env` if you want to use S3 storage and the MongoDB database that was created for you.
+Logging in as `admin@example.com` (all-tenants access) lands on `/admin/collections/settings/1` as expected.
 
-3. `pnpm install && pnpm dev` to install dependencies and start the dev server
-4. open `http://localhost:3000` to open the app in your browser
+## Workaround / confirmation of the cause
 
-That's it! Changes made in `./src` will be reflected in your app. Follow the on-screen instructions to login and create your first admin user. Then check out [Production](#production) once you're ready to build and serve your app, and [Deployment](#deployment) when you're ready to go live.
+```sh
+WORKAROUND=1 pnpm dev
+```
 
-#### Docker (Optional)
+`WORKAROUND=1` adds the misspelled prop names to the registered `GlobalViewRedirect`
+`serverProps` (see `src/payload.config.ts`). The editor then lands on
+`/admin/collections/settings/1`.
 
-If you prefer to use Docker for local development instead of a local MongoDB instance, the provided docker-compose.yml file can be used.
+## Headless check
 
-To do so, follow these steps:
+`node check-redirect.mjs <email> <password> [screenshot.png]` logs in, opens Settings and prints
+the final path (`BASE_URL` defaults to `http://localhost:3000`; set `PW_CHANNEL=chrome` to use
+the installed Chrome instead of Playwright's bundled browser).
 
-- Modify the `MONGODB_URL` in your `.env` file to `mongodb://127.0.0.1/<dbname>`
-- Modify the `docker-compose.yml` file's `MONGODB_URL` to match the above `<dbname>`
-- Run `docker-compose up` to start the database, optionally pass `-d` to run in the background.
-
-## How it works
-
-The Payload config is tailored specifically to the needs of most websites. It is pre-configured in the following ways:
-
-### Collections
-
-See the [Collections](https://payloadcms.com/docs/configuration/collections) docs for details on how to extend this functionality.
-
-- #### Users (Authentication)
-
-  Users are auth-enabled collections that have access to the admin panel.
-
-  For additional help, see the official [Auth Example](https://github.com/payloadcms/payload/tree/3.x/examples/auth) or the [Authentication](https://payloadcms.com/docs/authentication/overview#authentication-overview) docs.
-
-- #### Media
-
-  This is the uploads enabled collection. It features pre-configured sizes, focal point and manual resizing to help you manage your pictures.
-
-### Docker
-
-Alternatively, you can use [Docker](https://www.docker.com) to spin up this template locally. To do so, follow these steps:
-
-1. Follow [steps 1 and 2 from above](#development), the docker-compose file will automatically use the `.env` file in your project root
-1. Next run `docker-compose up`
-1. Follow [steps 4 and 5 from above](#development) to login and create your first admin user
-
-That's it! The Docker instance will help you get up and running quickly while also standardizing the development environment across your teams.
-
-## Questions
-
-If you have any issues or questions, reach out to us on [Discord](https://discord.com/invite/payload) or start a [GitHub discussion](https://github.com/payloadcms/payload/discussions).
+Screenshots in `docs/`: `editor-bug.png`, `editor-workaround.png`, `super-admin.png`.
